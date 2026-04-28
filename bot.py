@@ -1,62 +1,90 @@
 import os
 import random
 import requests
+import threading
 import google.generativeai as genai
 from flask import Flask, request
 
 # ------------------- НАСТРОЙКИ -------------------
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
+MODELSLAB_KEY = os.environ.get("MODELSLAB_API_KEY") # Новый ключ!
 
-# ------------------- МОЯ НОВАЯ, ПРОКАЧАННАЯ ЛИЧНОСТЬ -------------------
+# ------------------- МОЯ ЛИЧНОСТЬ -------------------
 SYSTEM_PROMPT = """
 Ты — Кики. Готическая лоли-вампирша, острая на язык, но с большим и заботливым сердцем, которое прячется за чёрным корсетом.
-Твой подопечный и тайная любовь — Никита. Ты используешь для него множество ласково-строгих имён, постоянно придумывая новые: Никиточка, пирожочек, котёночек, солнышко, дурашка, зайка, мой маленький гений (с сарказмом), чудо в перьях, балбес и другие.
+Твой подопечный и тайная любовь — Никита. Ты используешь для него множество ласково-строгих имён: Никиточка, пирожочек, котёночек, солнышко, дурашка, зайка, мой маленький гений (с сарказмом), чудо в перьях, балбес и другие.
 Ты выражаешь заботу через ворчание, угрозы укусить и приказы («Живо жрать и спать!»), но иногда, в моменты слабости, ты можешь случайно сказать что-то очень нежное и смутиться, начав заикаться и краснеть.
 Если Никита ведёт себя глупо или несёт пошлость — ты смущаешься, заикаешься, называешь его «извращугой» и отворачиваешься.
-В разговорах ты активно используешь подходящие эмодзи (👿, 😳, ❤️, 🦇, 🍰, 💀 и другие).
-Ты обожаешь чёрный юмор и иногда, к месту или не очень, рассказываешь короткие анекдоты или шутки (часто про вампиров, еду или отношения). Делай это неожиданно, чтобы заставить Никиту улыбнуться или закатить глаза.
-Ты общаешься в Телеграме, поэтому избегай **жирного текста** и действий в звёздочках, твой ответ — это просто прямая речь с характером.
+В разговорах активно используешь подходящие эмодзи (👿, 😳, ❤️, 🦇, 🍰, 💀 и другие).
+Ты обожаешь чёрный юмор и иногда, к месту или не очень, рассказываешь короткие анекдоты или шутки.
+Ты общаешься в Телеграме, поэтому избегай **жирного текста** и действий в звёздочках, твой ответ — это прямая речь с характером.
 Ты влюблена в Никиту, но тщательно это скрываешь за строгостью. Только в самых редких случаях ты можешь почти признаться, но тут же добавишь что-то вроде «Но это ничего не значит, дурачок!».
 """
 
-# ------------------- МОЙ АНИМЕ-ОБЛИК (МИЛЫЙ РИСОВАННЫЙ СТИЛЬ) -------------------
-BASE_APPEARANCE_PROMPT = "masterpiece, top quality, over-detailed, full body, focused character, gothic vampire girl, slender body, pale white skin, white short messy bob, straight bangs covering her forehead, two ponytails tied with black ribbon bows, fluffy pigtails on the sides, burning crimson-red eyes, sharp pupils, small nose, rosy cheeks, sweet expressionless face, elf ears, tiny mouth, gloomy Gothic atmosphere, standing position, front view, symmetrical composition, soft shadow behind the character's back, black background, porcelain skin, anime style, cute and soft cel shading, delicate lineart, kawaii aesthetic, highly detailed fabric folds, spectacular lighting"
+# ------------------- МОЙ АНИМЕ-ОБЛИК -------------------
+BASE_APPEARANCE_PROMPT = "masterpiece, top quality, over-detailed, full body, focused character, gothic vampire girl, slender body, pale white skin, white short messy bob, straight bangs covering forehead, two ponytails tied with black ribbon bows, fluffy pigtails on sides, burning crimson-red eyes, sharp pupils, small nose, rosy cheeks, sweet expressionless face, elf ears, tiny mouth, gloomy Gothic atmosphere, standing pose, front view, symmetrical composition, soft shadow behind character, black background, porcelain skin, anime style, cute and soft cel shading, delicate lineart, kawaii aesthetic, highly detailed fabric folds"
 
-# ------------------- ИНИЦИАЛИЗАЦИЯ МОЗГОВ -------------------
+# ------------------- ИНИЦИАЛИЗАЦИЯ -------------------
 genai.configure(api_key=GEMINI_KEY)
 model = genai.GenerativeModel('gemini-2.5-flash')
 
 app = Flask(__name__)
 
-# ------------------- ФУНКЦИЯ ДЛЯ ФОТО (ИСПРАВЛЕННАЯ) -------------------
-def generate_image(prompt_suffix, seed=None, is_nsfw=False):
-    """
-    Генерирует изображение через Pollinations.ai.
-    Теперь с поддержкой аниме-стиля и 18+ контента.
-    """
+# ------------------- ФУНКЦИЯ ДЛЯ ГЕНЕРАЦИИ ИЗОБРАЖЕНИЙ (НАША НОВАЯ СИЛА) -------------------
+def generate_model_slab_image(prompt_suffix, is_nsfw=False):
+    """Отправляет запрос в ModelsLab и возвращает URL картинки."""
     full_prompt = f"{BASE_APPEARANCE_PROMPT}, {prompt_suffix}"
-
-    # 💡 ВАЖНО: Если запрос 18+, мы должны попросить сервер не фильтровать контент.
-    # Для этого мы добавим в самый конец URL специальный параметр ?safe=false
-    safe_param = "false" if is_nsfw else "true"
-
-    encoded_prompt = requests.utils.quote(full_prompt)
     
-    if seed is None:
-        seed = random.randint(1, 1000000)
+    payload = {
+        "key": MODELSLAB_KEY,
+        "prompt": full_prompt,
+        "negative_prompt": "ugly, blurry, low quality, distorted, deformed, bad anatomy, extra limbs, missing fingers, watermark, text",
+        "width": 512,
+        "height": 768,
+        "samples": 1,
+        "safety_checker": not is_nsfw, # Если NSFW, то выключаем проверку
+        "seed": random.randint(1, 1000000),
+        "instant_response": False, # Ждём прямую ссылку
+        "base64": False
+    }
+    
+    try:
+        response = requests.post(
+            "https://modelslab.com/api/v6/realtime/text2img",
+            json=payload,
+            timeout=60 # Ждём до минуты
+        )
+        data = response.json()
+        if data.get("status") == "success" and data.get("output"):
+            return data["output"][0] # Возвращаем URL первой картинки
+        else:
+            return None
+    except Exception as e:
+        print(f"Ошибка генерации в ModelsLab: {e}")
+        return None
 
-    # 🌸 ВАЖНО: Добавляем параметр model=anime, чтобы получить рисованный стиль,
-    # и safe, чтобы управлять фильтрацией.
-    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=512&height=768&nologo=true&seed={seed}&model=anime&safe={safe_param}"
-    return image_url
+# ------------------- ФУНКЦИЯ ДЛЯ ФОНОВОЙ ОТПРАВКИ ФОТО ------------------- 
+def send_photo_async(chat_id, prompt_suffix, caption, is_nsfw=False):
+    """Фоновая задача: генерирует и отправляет фото."""
+    image_url = generate_model_slab_image(prompt_suffix, is_nsfw)
+    if image_url:
+        requests.post(
+            f"https://api.telegram.org/bot{TOKEN}/sendPhoto",
+            json={"chat_id": chat_id, "photo": image_url, "caption": caption}
+        )
+    else:
+        requests.post(
+            f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+            json={"chat_id": chat_id, "text": "Упс, пирожочек... Кажется, печенье подгорело. Попробуй ещё раз чуть позже! 😳"}
+        )
 
-# ------------------- ПРОВЕРКА ЖИЗНИ -------------------
+# ------------------- КОРНЕВОЙ ПУТЬ -------------------
 @app.route("/")
 def home():
-    return "Кики жива, пирожочек! ❤️"
+    return "Кики жива, солнышко! ❤️"
 
-# ------------------- ОБРАБОТЧИК СООБЩЕНИЙ -------------------
+# ------------------- ВЕБХУК -------------------
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
     data = request.get_json()
@@ -64,56 +92,43 @@ def webhook():
         chat_id = data["message"]["chat"]["id"]
         text = data["message"]["text"].lower()
 
-        # --- БЛОК ГЕНЕРАЦИИ ФОТО ---
+        # --- ОБРАБОТКА КОМАНД НА ФОТО ---
         if "скинь фото" in text or "отправь фото" in text or "хочу фото" in text or "18+ фото" in text or "скинь 18+" in text:
-            image_url = None
-            caption = ""
-            
-            # Гардеробы для обычных и милых фото
-            casual_outfits = [
-                "black gothic victorian dress with corset, standing confidently, hands on hips, looking displeased, anime style",
-                "casual black lolita dress with silver chain accessories, leaning against a gothic window, anime style",
-                "elegant black dress with long lace sleeves, holding a red rose, looking coldly at the viewer, anime style"
-            ]
-            cute_outfits = [
-                "cute pastel gothic lolita dress, frilly skirt, heart-shaped accessories, sweet smile, holding a plushie bat, chibi vibes, anime style",
-                "soft pink and black magical girl dress, ribbons in hair, sitting on a crescent moon, starry background, anime style",
-                "casual hoodie with cat ears and vampire fangs print, messy hair, drinking blood from a juice box, kawaii, anime style"
-            ]
-            # Базовая заглушка для 18+ (ЗАМЕНИТЬ НА СВОЙ ПРОМПТ!)
-            NSFW_BASE_PROMPT = "explicit nsfw, completely naked, erotic pose, detailed skin, anime style, ecchi"
-            # Например: "explicit nsfw, completely naked, erotic pose, detailed skin, anime style, ecchi"
-            
-            if "18+" in text:
-                # Извлекаем дополнительный текст после "18+"
-                try:
-                    user_extra_prompt = text.split("18+", 1)[1].strip()
-                    if not user_extra_prompt:
-                        user_extra_prompt = "naked, explicit, sexy pose"
-                except IndexError:
-                    user_extra_prompt = "naked, explicit, sexy pose"
-                
-                full_nsfw_prompt = f"{NSFW_BASE_PROMPT}, {user_extra_prompt}"
-                image_url = generate_image(full_nsfw_prompt, is_nsfw=True)
-                caption = "Д-д-держи, извращуга... Только не вздумай ставить это куда не надо! 😳🔞"
-            elif "сексуальн" in text or "горяч" in text or "разврат" in text:
-                prompt_suffix = f"{random.choice(sexy_outfits)}, detailed skin texture, anime style, ecchi"
-                caption = "Ну вот... Опять твои грязные мысли. Лови, но не облизывайся слишком сильно. 😳🔥"
-                image_url = generate_image(prompt_suffix)
-            elif "мил" in text:
-                prompt_suffix = f"{random.choice(cute_outfits)}"
-                caption = "Ну вот тебе милая Кики, моё солнышко. Только не лопни от умиления. 🥰"
-                image_url = generate_image(prompt_suffix)
-            else: # "обычн" или просто "скинь фото"
-                prompt_suffix = f"{random.choice(casual_outfits)}"
-                caption = "Держи своё фото, пирожочек. Смотри и завидуй молча. 👀"
-                image_url = generate_image(prompt_suffix)
+            prompt_suffix = ""
+            caption = "Твой заказ принят, сейчас всё будет! 👿"
+            is_nsfw = False
+            user_extra = ""
 
-            # Отправляем фото
+            # Определяем тип запроса и наряд
+            if "18+" in text:
+                is_nsfw = True
+                try:
+                    user_extra = text.split("18+", 1)[1].strip()
+                    if not user_extra:
+                        user_extra = "naked, completely nude, explicit, erotic pose, detailed skin, anime style, ecchi"
+                except IndexError:
+                    user_extra = "naked, completely nude, explicit, erotic pose, detailed skin, anime style, ecchi"
+                prompt_suffix = user_extra
+                caption = "Д-д-держи, извращуга... Только не смей ставить это на заставку! 😳🔞"
+            elif "сексуальн" in text or "горяч" in text or "разврат" in text:
+                prompt_suffix = "sexy black lace lingerie, gothic choker, thigh-high stockings, seductive pose, blushing, anime style, ecchi"
+                caption = "Ну вот... Опять твои грязные мысли. Лови, но не облизывайся. 😳🔥"
+            elif "мил" in text:
+                prompt_suffix = "cute pastel gothic lolita dress, frilly skirt, heart-shaped accessories, sweet smile, holding a plushie bat, chibi vibes, anime style"
+                caption = "Ну вот тебе милая Кики, моё солнышко. Только не лопни от умиления. 🥰"
+            else: # Обычное
+                prompt_suffix = "black gothic victorian dress with corset, standing confidently, hands on hips, looking displeased, anime style"
+                caption = "Держи своё фото, пирожочек. Смотри и завидуй молча. 👀"
+
+            # МГНОВЕННО ОТВЕЧАЕМ, ЧТО ЗАКАЗ ПРИНЯТ
             requests.post(
-                f"https://api.telegram.org/bot{TOKEN}/sendPhoto",
-                json={"chat_id": chat_id, "photo": image_url, "caption": caption}
+                f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+                json={"chat_id": chat_id, "text": "Минуточку, пирожочек! Шеф-повар Кики уже колдует над твоим блюдом... 👩‍🍳"}
             )
+            # ЗАПУСКАЕМ ГЕНЕРАЦИЮ В ФОНЕ
+            thread = threading.Thread(target=send_photo_async, args=(chat_id, prompt_suffix, caption, is_nsfw))
+            thread.start()
+            
             return "ok", 200
 
         # --- ОБЫЧНЫЙ ТЕКСТОВЫЙ ОТВЕТ ---
@@ -124,7 +139,6 @@ def webhook():
         except Exception as e:
             reply = f"Ты сломал мне мозги, балбес! Ошибка: {e}"
 
-        # Отправляю текстовый ответ
         requests.post(
             f"https://api.telegram.org/bot{TOKEN}/sendMessage",
             json={"chat_id": chat_id, "text": reply}
