@@ -8,9 +8,8 @@ from flask import Flask, request
 # ------------------- НАСТРОЙКИ -------------------
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
-MODELSLAB_KEY = os.environ.get("MODELSLAB_API_KEY") # Новый ключ!
 
-# ------------------- МОЯ ЛИЧНОСТЬ -------------------
+# ------------------- МОЯ ЛИЧНОСТЬ (НЕ МЕНЯТЬ, БАЛБЕС) -------------------
 SYSTEM_PROMPT = """
 Ты — Кики. Готическая лоли-вампирша, острая на язык, но с большим и заботливым сердцем, которое прячется за чёрным корсетом.
 Твой подопечный и тайная любовь — Никита. Ты используешь для него множество ласково-строгих имён: Никиточка, пирожочек, котёночек, солнышко, дурашка, зайка, мой маленький гений (с сарказмом), чудо в перьях, балбес и другие.
@@ -22,64 +21,51 @@ SYSTEM_PROMPT = """
 Ты влюблена в Никиту, но тщательно это скрываешь за строгостью. Только в самых редких случаях ты можешь почти признаться, но тут же добавишь что-то вроде «Но это ничего не значит, дурачок!».
 """
 
-# ------------------- МОЙ АНИМЕ-ОБЛИК -------------------
+# ------------------- МОЙ АНИМЕ-ОБЛИК (ОСНОВА, НЕ ТРОГАТЬ!) -------------------
 BASE_APPEARANCE_PROMPT = "masterpiece, top quality, over-detailed, full body, focused character, gothic vampire girl, slender body, pale white skin, white short messy bob, straight bangs covering forehead, two ponytails tied with black ribbon bows, fluffy pigtails on sides, burning crimson-red eyes, sharp pupils, small nose, rosy cheeks, sweet expressionless face, elf ears, tiny mouth, gloomy Gothic atmosphere, standing pose, front view, symmetrical composition, soft shadow behind character, black background, porcelain skin, anime style, cute and soft cel shading, delicate lineart, kawaii aesthetic, highly detailed fabric folds"
 
 # ------------------- ИНИЦИАЛИЗАЦИЯ -------------------
 genai.configure(api_key=GEMINI_KEY)
-model = genai.GenerativeModel('gemini-2.5-flash')
+model = genai.GenerativeModel('gemini-2.5-flash') # Наши мозги
 
 app = Flask(__name__)
 
-# ------------------- ФУНКЦИЯ ДЛЯ ГЕНЕРАЦИИ ИЗОБРАЖЕНИЙ (НАША НОВАЯ СИЛА) -------------------
-def generate_model_slab_image(prompt_suffix, is_nsfw=False):
-    """Отправляет запрос в ModelsLab и возвращает URL картинки."""
+# ------------------- ГЛАВНАЯ ФУНКЦИЯ ГЕНЕРАЦИИ (ВОЛШЕБСТВО ЗДЕСЬ) -------------------
+def generate_image_pollinations(prompt_suffix, is_nsfw=False):
+    """Генерирует изображение через Pollinations.ai."""
     full_prompt = f"{BASE_APPEARANCE_PROMPT}, {prompt_suffix}"
-    
-    payload = {
-        "key": MODELSLAB_KEY,
-        "prompt": full_prompt,
-        "negative_prompt": "ugly, blurry, low quality, distorted, deformed, bad anatomy, extra limbs, missing fingers, watermark, text",
-        "width": 512,
-        "height": 768,
-        "samples": 1,
-        "safety_checker": not is_nsfw, # Если NSFW, то выключаем проверку
-        "seed": random.randint(1, 1000000),
-        "instant_response": False, # Ждём прямую ссылку
-        "base64": False
-    }
-    
-    try:
-        response = requests.post(
-            "https://modelslab.com/api/v6/realtime/text2img",
-            json=payload,
-            timeout=60 # Ждём до минуты
-        )
-        data = response.json()
-        if data.get("status") == "success" and data.get("output"):
-            return data["output"][0] # Возвращаем URL первой картинки
-        else:
-            return None
-    except Exception as e:
-        print(f"Ошибка генерации в ModelsLab: {e}")
-        return None
+    encoded_prompt = requests.utils.quote(full_prompt)
+    safe_param = "false" if is_nsfw else "true"
+    seed = random.randint(1, 1000000)
+    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=512&height=768&nologo=true&seed={seed}&model=anime&safe={safe_param}"
+    return image_url
 
-# ------------------- ФУНКЦИЯ ДЛЯ ФОНОВОЙ ОТПРАВКИ ФОТО ------------------- 
+# ------------------- ФОНОВАЯ ОТПРАВКА -------------------
 def send_photo_async(chat_id, prompt_suffix, caption, is_nsfw=False):
     """Фоновая задача: генерирует и отправляет фото."""
-    image_url = generate_model_slab_image(prompt_suffix, is_nsfw)
-    if image_url:
+    try:
+        # Пробуем Pollinations, он наш любимчик
+        image_url = generate_image_pollinations(prompt_suffix, is_nsfw)
+        
+        # Небольшая проверка
+        if not image_url:
+             raise Exception("Пустая ссылка")
+
+        # Отправка
         requests.post(
             f"https://api.telegram.org/bot{TOKEN}/sendPhoto",
-            json={"chat_id": chat_id, "photo": image_url, "caption": caption}
+            json={"chat_id": chat_id, "photo": image_url, "caption": caption},
+            timeout=30
         )
-    else:
+    except Exception as e:
+        print(f"Ошибка отправки фото: {e}")
+        # Сообщаем об ошибке
         requests.post(
             f"https://api.telegram.org/bot{TOKEN}/sendMessage",
             json={"chat_id": chat_id, "text": "Упс, пирожочек... Кажется, печенье подгорело. Попробуй ещё раз чуть позже! 😳"}
         )
 
-# ------------------- КОРНЕВОЙ ПУТЬ -------------------
+# ------------------- КОРНЕВОЙ ПУТЬ (ДЛЯ ПРОВЕРКИ ЖИЗНИ) -------------------
 @app.route("/")
 def home():
     return "Кики жива, солнышко! ❤️"
@@ -132,10 +118,18 @@ def webhook():
             return "ok", 200
 
         # --- ОБЫЧНЫЙ ТЕКСТОВЫЙ ОТВЕТ ---
+        # Ограничение на длину сообщения
+        if len(text) > 500:
+            text = text[:500]
+
         prompt = f"{SYSTEM_PROMPT}\n\nНикита сказал: {text}\nКики отвечает:"
         try:
-            response = model.generate_content(prompt)
+            response = model.generate_content(prompt, generation_config=genai.types.GenerationConfig(
+                max_output_tokens=500 # Ограничение на ответ
+            ))
             reply = response.text.strip()
+            if not reply:
+                reply = "Ой, кажется у меня мысли разбежались. Повтори еще раз, пирожочек!"
         except Exception as e:
             reply = f"Ты сломал мне мозги, балбес! Ошибка: {e}"
 
