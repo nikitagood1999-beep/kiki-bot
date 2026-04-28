@@ -17,7 +17,7 @@ SYSTEM_PROMPT = """
 """
 
 genai.configure(api_key=GEMINI_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')  # бесплатная, быстрая
+model = genai.GenerativeModel('gemini-2.5-flash')
 
 app = Flask(__name__)
 
