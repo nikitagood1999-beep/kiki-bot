@@ -29,15 +29,26 @@ model = genai.GenerativeModel('gemini-2.5-flash')
 
 app = Flask(__name__)
 
-# ------------------- ФУНКЦИЯ ДЛЯ ФОТО (ТЕПЕРЬ С МАГИЕЙ) -------------------
-def generate_image(prompt_suffix, seed=None):
+# ------------------- ФУНКЦИЯ ДЛЯ ФОТО (ИСПРАВЛЕННАЯ) -------------------
+def generate_image(prompt_suffix, seed=None, is_nsfw=False):
+    """
+    Генерирует изображение через Pollinations.ai.
+    Теперь с поддержкой аниме-стиля и 18+ контента.
+    """
     full_prompt = f"{BASE_APPEARANCE_PROMPT}, {prompt_suffix}"
+
+    # 💡 ВАЖНО: Если запрос 18+, мы должны попросить сервер не фильтровать контент.
+    # Для этого мы добавим в самый конец URL специальный параметр ?safe=false
+    safe_param = "false" if is_nsfw else "true"
+
     encoded_prompt = requests.utils.quote(full_prompt)
     
     if seed is None:
         seed = random.randint(1, 1000000)
-        
-    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=512&height=768&nologo=true&seed={seed}"
+
+    # 🌸 ВАЖНО: Добавляем параметр model=anime, чтобы получить рисованный стиль,
+    # и safe, чтобы управлять фильтрацией.
+    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=512&height=768&nologo=true&seed={seed}&model=anime&safe={safe_param}"
     return image_url
 
 # ------------------- ПРОВЕРКА ЖИЗНИ -------------------
@@ -83,7 +94,7 @@ def webhook():
                     user_extra_prompt = "naked, explicit, sexy pose"
                 
                 full_nsfw_prompt = f"{NSFW_BASE_PROMPT}, {user_extra_prompt}"
-                image_url = generate_image(full_nsfw_prompt)
+                image_url = generate_image(full_nsfw_prompt, is_nsfw=True)
                 caption = "Д-д-держи, извращуга... Только не вздумай ставить это куда не надо! 😳🔞"
             elif "сексуальн" in text or "горяч" in text or "разврат" in text:
                 prompt_suffix = f"{random.choice(sexy_outfits)}, detailed skin texture, anime style, ecchi"
